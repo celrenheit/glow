@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	"os"
@@ -65,7 +66,7 @@ type sshAuthErrMsg struct{}
 type keygenFailedMsg struct{ err error }
 type keygenSuccessMsg struct{}
 type initLocalFileSearchMsg struct {
-	cwd string
+	cwd fs.FS
 	ch  chan gitcha.SearchResult
 }
 type foundLocalFileMsg gitcha.SearchResult
@@ -133,7 +134,7 @@ const (
 type commonModel struct {
 	cfg        Config
 	cc         *charm.Client
-	cwd        string
+	cwd        fs.FS
 	authStatus authStatus
 	width      int
 	height     int
@@ -470,30 +471,40 @@ func errorView(err error, fatal bool) string {
 func findLocalFiles(m model) tea.Cmd {
 	return func() tea.Msg {
 		var (
-			cwd = m.common.cfg.WorkingDirectory
-			err error
+			fsys = m.common.cfg.WorkingFS
+			err  error
 		)
 
-		if cwd == "" {
-			cwd, err = os.Getwd()
-		} else {
-			var info os.FileInfo
-			info, err = os.Stat(cwd)
-			if err == nil && info.IsDir() {
-				cwd, err = filepath.Abs(cwd)
+		if fsys == nil {
+			cwd := m.common.cfg.WorkingDirectory
+			if cwd == "" {
+				cwd, err = os.Getwd()
+			} else {
+				var info os.FileInfo
+				info, err = os.Stat(cwd)
+				if err == nil && info.IsDir() {
+					cwd, err = filepath.Abs(cwd)
+				}
 			}
-		}
 
-		// Note that this is one error check for both cases above
-		if err != nil {
-			if debug {
-				log.Println("error finding local files:", err)
+			// Note that this is one error check for both cases above
+			if err != nil {
+				if debug {
+					log.Println("error finding local files:", err)
+				}
+				return errMsg{err}
 			}
-			return errMsg{err}
+
+			fsys = os.DirFS(cwd)
 		}
 
 		if debug {
-			log.Println("local directory is:", cwd)
+			fi, err := fs.Stat(fsys, ".")
+			if err != nil {
+				return err
+			}
+
+			log.Println("local directory is:", fi.Name())
 		}
 
 		var ignore []string
@@ -501,7 +512,7 @@ func findLocalFiles(m model) tea.Cmd {
 			ignore = ignorePatterns(m)
 		}
 
-		ch, err := gitcha.FindFilesExcept(cwd, markdownExtensions, ignore)
+		ch, err := gitcha.FindFilesExceptFS(fsys, markdownExtensions, ignore)
 		if err != nil {
 			if debug {
 				log.Println("error finding local files:", err)
@@ -509,7 +520,7 @@ func findLocalFiles(m model) tea.Cmd {
 			return errMsg{err}
 		}
 
-		return initLocalFileSearchMsg{ch: ch, cwd: cwd}
+		return initLocalFileSearchMsg{ch: ch, cwd: fsys}
 	}
 }
 
@@ -715,12 +726,12 @@ func waitForStatusMessageTimeout(appCtx applicationContext, t *time.Timer) tea.C
 // Convert a Gitcha result to an internal representation of a markdown
 // document. Note that we could be doing things like checking if the file is
 // a directory, but we trust that gitcha has already done that.
-func localFileToMarkdown(cwd string, res gitcha.SearchResult) *markdown {
+func localFileToMarkdown(_ fs.FS, res gitcha.SearchResult) *markdown {
 	md := &markdown{
 		docType:   LocalDoc,
 		localPath: res.Path,
 		Markdown: charm.Markdown{
-			Note:      stripAbsolutePath(res.Path, cwd),
+			Note:      res.Info.Name(),
 			CreatedAt: res.Info.ModTime(),
 		},
 	}

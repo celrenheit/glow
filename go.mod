@@ -27,3 +27,5 @@ require (
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf
 	golang.org/x/text v0.3.2
 )
+
+replace github.com/muesli/gitcha => github.com/celrenheit/gitcha v0.2.1-0.20210827184636-45054f6b658c

@@ -1,5 +1,7 @@
 package ui
 
+import "io/fs"
+
 // Config contains TUI-specific configuration.
 type Config struct {
 	ShowAllFiles    bool
@@ -8,8 +10,10 @@ type Config struct {
 	GlamourMaxWidth uint
 	GlamourStyle    string
 
-	// Which directory should we start from?
+	// DEPRECATED: Which directory should we start from?
 	WorkingDirectory string
+	// Which directory should we start from?
+	WorkingFS fs.FS
 
 	// Which document types shall we show?
 	DocumentTypes DocTypeSet
